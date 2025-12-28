@@ -1,0 +1,4 @@
+/client/node_modules
+/server/node_modules
+/dummyServer/node_modules
+.env
