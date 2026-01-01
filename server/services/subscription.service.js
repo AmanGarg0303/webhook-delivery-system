@@ -8,7 +8,7 @@ export async function createSubscription({ appId, event, webhookUrl }) {
     `
         INSERT INTO subscriptions (app_id, event, webhook_url) 
         VALUES ($1, $2, $3) 
-        RETURNING id, app_id, event, webhook_url
+        RETURNING id, app_id, event, webhook_url, secret
     `,
     [appId, event, webhookUrl]
   );
@@ -21,6 +21,7 @@ export async function createSubscription({ appId, event, webhookUrl }) {
     JSON.stringify({
       subscription_id: subscription.id,
       webhook_url: subscription.webhook_url,
+      secret: subscription.secret,
     })
   );
 

@@ -13,7 +13,7 @@ export async function triggerEvent({ appId, event, payload }) {
   if (subscribers.length == 0) {
     const result = await pool.query(
       `
-            SELECT id, webhook_url 
+            SELECT id, webhook_url, secret  
             FROM subscriptions 
             WHERE app_id = $1 AND event = $2
             `,
@@ -24,6 +24,7 @@ export async function triggerEvent({ appId, event, payload }) {
       const data = {
         subscription_id: row.id,
         webhook_url: row.webhook_url,
+        secret: row.secret,
       };
       redis.rpush(getRedisKey(appId, event), JSON.stringify(data));
       return JSON.stringify(data);
@@ -48,6 +49,8 @@ export async function triggerEvent({ appId, event, payload }) {
       parsed.subscription_id,
       "webhook_url",
       parsed.webhook_url,
+      "secret",
+      parsed.secret,
       "payload",
       JSON.stringify(payload),
       "attempt",

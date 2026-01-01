@@ -1,5 +1,6 @@
 import redis from "../redisConnect.js";
 import axios from "axios";
+import crypto from "crypto";
 
 const STREAM_NAME = "webhook:deliveries";
 const GROUP = "delivery-workers";
@@ -13,12 +14,26 @@ function sleep(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-async function deliverWebhook({ webhook_url, payload }) {
+function signPayload(payload, secret) {
+  return crypto.createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+async function deliverWebhook({
+  webhook_url,
+  secret,
+  subscription_id,
+  payload,
+}) {
+  const payloadString = JSON.stringify(payload);
+  const signature = signPayload(payloadString, secret);
+
   return axios.post(webhook_url, payload, {
     timeout: 5000,
     headers: {
       "Content-Type": "application/json",
       "User-Agent": "Webhook-Delivery-System",
+      "x-webhook-signature": `sha256=${signature}`,
+      "x-subscription-id": subscription_id,
     },
     validateStatus: () => true,
   });
@@ -70,6 +85,8 @@ async function init() {
       try {
         const res = await deliverWebhook({
           webhook_url: job.webhook_url,
+          secret: job.secret,
+          subscription_id: job.subscription_id,
           payload,
         });
 
