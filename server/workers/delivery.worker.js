@@ -6,9 +6,24 @@ const STREAM_NAME = "webhook:deliveries";
 const GROUP = "delivery-workers";
 const CONSUMER = `worker-${process.pid}`;
 const DLQ_STREAM = "webhook:dlq";
+const DELIVERED_PREFIX = "delivered:";
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
+const DELIVERED_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+
+async function isAlreadyDelivered({ delivery_id }) {
+  return redis.exists(`${DELIVERED_PREFIX}${delivery_id}`);
+}
+
+async function markDelivered({ delivery_id }) {
+  await redis.set(
+    `${DELIVERED_PREFIX}${delivery_id}`,
+    "1",
+    "EX",
+    DELIVERED_TTL_SECONDS
+  );
+}
 
 function sleep(ms) {
   return new Promise((res) => setTimeout(res, ms));
@@ -21,6 +36,8 @@ function signPayload(payload, secret) {
 async function deliverWebhook({
   webhook_url,
   secret,
+  event_id,
+  delivery_id,
   subscription_id,
   payload,
 }) {
@@ -33,6 +50,8 @@ async function deliverWebhook({
       "Content-Type": "application/json",
       "User-Agent": "Webhook-Delivery-System",
       "x-webhook-signature": `sha256=${signature}`,
+      "x-event-id": event_id,
+      "x-delivery-id": delivery_id,
       "x-subscription-id": subscription_id,
     },
     validateStatus: () => true,
@@ -83,15 +102,25 @@ async function init() {
       const payload = JSON.parse(job.payload);
 
       try {
+        // dedupe check
+        if (await isAlreadyDelivered({ delivery_id: job.delivery_id })) {
+          console.log("Skipping already delivered webhook:", job.delivery_id);
+          await redis.xack(STREAM_NAME, GROUP, id);
+          continue;
+        }
+
         const res = await deliverWebhook({
           webhook_url: job.webhook_url,
           secret: job.secret,
+          delivery_id: job.delivery_id,
+          event_id: job.event_id,
           subscription_id: job.subscription_id,
           payload,
         });
 
         if (res.status >= 200 && res.status < 300) {
           console.log("Delivered:", job.subscription_id);
+          await markDelivered({ delivery_id: job.delivery_id });
           await redis.xack(STREAM_NAME, GROUP, id);
           continue;
         }
