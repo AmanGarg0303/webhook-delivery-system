@@ -11,7 +11,9 @@ export async function initDb() {
             event TEXT NOT NULL,
             webhook_url TEXT NOT NULL,
             secret TEXT NOT NULL DEFAULT encode(gen_random_bytes(32), 'hex'),
-            created_at TIMESTAMP DEFAULT NOW()
+            created_at TIMESTAMP DEFAULT NOW(),
+
+            CONSTRAINT uniq_app_event_url UNIQUE (app_id, event, webhook_url)
         );
 
         CREATE INDEX IF NOT EXISTS idx_subscriptions_app_event

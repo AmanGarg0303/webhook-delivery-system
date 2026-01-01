@@ -28,8 +28,8 @@ function verifySignature(rawBody, signature, secret) {
 
 // sub_id: secret
 const WEBHOOK_SECRETS = {
-  "4a8f34a6-4480-4aca-8aca-2d57315fe9b6":
-    "2ded564ac1a6abdda3a4c058d98b70ec7ea316953ccc3e51217a49b05fed836f",
+  "981a43dc-b803-4a3e-986f-271660833f4f":
+    "823a5a21e4b4d28ab315063b8c7a4406a13bcb506838a80c8177b8bc5c82ad60",
 };
 
 app.post("/webhook", (req, res) => {
