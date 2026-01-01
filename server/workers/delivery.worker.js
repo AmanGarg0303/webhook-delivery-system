@@ -1,8 +1,27 @@
 import redis from "../redisConnect.js";
+import axios from "axios";
 
 const STREAM_NAME = "webhook:deliveries";
 const GROUP = "delivery-workers";
 const CONSUMER = `worker-${process.pid}`;
+
+const MAX_RETRIES = 5;
+const BASE_DELAY_MS = 1000;
+
+function sleep(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+async function deliverWebhook({ webhook_url, payload }) {
+  return axios.post(webhook_url, payload, {
+    timeout: 5000,
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": "Webhook-Delivery-System",
+    },
+    validateStatus: () => true,
+  });
+}
 
 async function init() {
   try {
@@ -35,8 +54,62 @@ async function init() {
     for (const [id, fields] of messages) {
       console.log("Received job:", fields);
 
-      // Ack for now
-      await redis.xack(STREAM_NAME, GROUP, id);
+      const job = Object.fromEntries(
+        fields.reduce((acc, cur, i) => {
+          if (i % 2 == 0) acc.push([cur, fields[i + 1]]);
+          return acc;
+        }, [])
+      );
+
+      const attempt = Number(job.attempt);
+      const payload = JSON.parse(job.payload);
+
+      try {
+        const res = await deliverWebhook({
+          webhook_url: job.webhook_url,
+          payload,
+        });
+
+        if (res.status >= 200 && res.status < 300) {
+          console.log("Delivered:", job.subscription_id);
+          await redis.xack(STREAM_NAME, GROUP, id);
+          continue;
+        }
+
+        throw new Error(`Non 2xx status ${res.status}`);
+      } catch (error) {
+        if (attempt + 1 >= MAX_RETRIES) {
+          console.log(
+            "Delivery failed permanently:",
+            job.subscription_id,
+            error.message
+          );
+
+          // TODO: i shud move it to DLQ, instead of acknowledging it
+          await redis.xack(STREAM_NAME, GROUP, id);
+          continue;
+        }
+
+        // Exponential backoff
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        console.log(
+          `Retrying ${job.subscription_id} in ${delay}ms (attempt ${
+            attempt + 1
+          })`
+        );
+
+        await sleep(delay);
+        await redis.xadd(
+          STREAM_NAME,
+          "*",
+          ...Object.entries({
+            ...job,
+            attempt: String(attempt + 1),
+          }).flat()
+        );
+
+        await redis.xack(STREAM_NAME, GROUP, id);
+      }
     }
   }
 }

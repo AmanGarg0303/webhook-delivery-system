@@ -10,6 +10,11 @@ app.post("/webhook", (req, res) => {
   console.log("Headers: ", req.headers);
   console.log("Body:", JSON.stringify(req.body, null, 2));
 
+  if (Math.random() < 0.5) {
+    console.log("Simulating failure");
+    return res.status(500).json({ error: "Temporary failure" });
+  }
+
   res.status(200).json({ received: true });
 });
 
