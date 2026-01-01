@@ -11,6 +11,7 @@ const DELIVERED_PREFIX = "delivered:";
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
 const DELIVERED_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+const MAX_BACKOFF_MS = 1000 * 60; // 1 min
 
 async function isAlreadyDelivered({ delivery_id }) {
   return redis.exists(`${DELIVERED_PREFIX}${delivery_id}`);
@@ -31,6 +32,14 @@ function sleep(ms) {
 
 function signPayload(payload, secret) {
   return crypto.createHmac("sha256", secret).update(payload).digest("hex");
+}
+
+function getBackoffDelay(attempt) {
+  const maxDelay = Math.min(
+    BASE_DELAY_MS * Math.pow(2, attempt),
+    MAX_BACKOFF_MS
+  );
+  return Math.floor(Math.random() * maxDelay);
 }
 
 async function deliverWebhook({
@@ -151,7 +160,7 @@ async function init() {
         }
 
         // Exponential backoff
-        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        const delay = getBackoffDelay(attempt);
         console.log(
           `Retrying ${job.subscription_id} in ${delay}ms (attempt ${
             attempt + 1
