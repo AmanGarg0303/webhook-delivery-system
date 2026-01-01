@@ -4,6 +4,7 @@ import axios from "axios";
 const STREAM_NAME = "webhook:deliveries";
 const GROUP = "delivery-workers";
 const CONSUMER = `worker-${process.pid}`;
+const DLQ_STREAM = "webhook:dlq";
 
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 1000;
@@ -61,6 +62,8 @@ async function init() {
         }, [])
       );
 
+      console.log("JOB:", job);
+
       const attempt = Number(job.attempt);
       const payload = JSON.parse(job.payload);
 
@@ -85,7 +88,18 @@ async function init() {
             error.message
           );
 
-          // TODO: i shud move it to DLQ, instead of acknowledging it
+          await redis.xadd(
+            DLQ_STREAM,
+            "*",
+            ...Object.entries({
+              ...job,
+            }),
+            "last_error",
+            error.message,
+            "failed_at",
+            new Date().toISOString()
+          );
+
           await redis.xack(STREAM_NAME, GROUP, id);
           continue;
         }
